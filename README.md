@@ -38,7 +38,8 @@ This Python-based GUI tool processes minute-wise load data from an Excel input f
         *   `Load` (MW) - The calculated load for each minute.
         *   `Load Per Minute` (Load / 30)
         *   `Availability (hourly)` (MW): The hourly availability value (from Availability Sheet, Col D) corresponding to the hour of the `Date Time Stamp`. This value is constant for all minutes within the same hour. Displayed as blank/NA if no availability for that hour.
-        *   `Demand (Load Demand MW)` (MW): The target demand set by the last active dispatch instruction (from Dispatch Instructions, Col F). This will be blank/NA if the system is currently in "FCBL Following" mode *and* the hourly availability lookup was successful. If the FCBL lookup fails, this column shows the fallback `Target Demand (MW)`.
+        *   `Target Instruction (Dispatch Col E)`: Displays the content of Column E from the "Dispatch Instructions" sheet (e.g., "FCBL", or a numeric target if present in that column as per user's sheet design) *only* at the minute the instruction becomes active. Blank otherwise.
+        *   `Instruction Target Time (Dispatch Col B)`: Displays the timestamp from Column B of the "Dispatch Instructions" sheet *only* at the minute the instruction becomes active. Blank otherwise.
         *   `LPM (30 Min Sum)`: This column is populated only at specific times:
             *   For rows where timestamp minute is `00` (e.g., `XX:00:00`): Value is the sum of 'Load Per Minute' from the previous 30 minutes (i.e., `(Hour-1):30:00` to `(Hour-1):59:00`).
             *   For rows where timestamp minute is `30` (e.g., `XX:30:00`): Value is the sum of 'Load Per Minute' from the first 30 minutes of the current hour (i.e., `Hour:00:00` to `Hour:29:00`).
@@ -86,8 +87,8 @@ The tool expects an Excel file (`.xlsx` or `.xls`) with the following structure:
     *   **Column B (Timestamp):** `Target Time Stamp` - The time by which the ramp should be completed and the target achieved. This is the primary determinant for ramp end if valid and in the future.
     *   **Column C (Numeric):** `Ramp Duration (Minutes)` - The duration in minutes over which the ramp should occur. Expected to be positive. Used if Column B is invalid/missing or not in the future. Defaults to 1 if missing/invalid and a ramp is implied.
     *   **Column D (Text/Any):** *Currently not used by the core processing logic.* Can be used for descriptive purposes by the user.
-    *   **Column E (Text):** `Post-Ramp Target Type` - Specifies behavior after a ramp or instantaneous change. If this column contains the exact string "FCBL" (case-insensitive), the tool will look up Final Availability. Otherwise, the Target Demand is used.
-    *   **Column F (Numeric):** `Target Demand (MW)` - The target load in MW that the instruction aims for.
+    *   **Column E (Text/Numeric):** `Post-Ramp Target Type` / `Target Instruction` - Specifies behavior after a ramp or instantaneous change. If this column contains the exact string "FCBL" (case-insensitive), the tool will look up Final Availability. This column's content (textual or numeric) is displayed in the output. *The numeric target for actual load calculation is always taken from Column F.*
+    *   **Column F (Numeric):** `Target Demand (MW)` - The numeric target load in MW that the instruction aims for, used in all load calculations.
     *   *Other columns can exist but are not currently used.*
 
 2.  **Sheet Name: `Availability`**
