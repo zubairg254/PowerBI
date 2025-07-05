@@ -24,16 +24,18 @@ This Python-based GUI tool processes minute-wise load data from an Excel input f
             *   Ramp continues until `Target Time Stamp` [Col B] is reached (preferred) or for the specified `Ramp Duration` [Col C] (if Col B is invalid/missing or not in the future relative to instruction time).
             *   Load is **not** capped at `Target Demand (MW)` during the ramp itself.
         *   **Post-Ramp / At Target Time Stamp:**
-            *   If `Post-Ramp Target Type` [Col E] is "FCBL" (case-insensitive): The load is set by looking up "Final Availability" (from "Availability" Col D) for the current hour. If not found, load remains at the ramped target (`Target Demand (MW)` from Col F).
-            *   Otherwise: Load is set to the `Target Demand (MW)` [Col F] that was ramped towards.
-        *   **Instantaneous Changes:** An instruction results in an instantaneous load change if `Target Time Stamp` [Col B] is the same as `Notification Time` [Col A]. In this case, load is set to `Target Demand (MW)` [Col F] at the `Notification Time`, and post-ramp logic (checking Col E) applies immediately for that same minute.
+            *   If `Post-Ramp Target Type` [Col E] is "FCBL" (case-insensitive): The **`Load`** is set by looking up "Final Availability" (from "Availability" Col D) for the current hour. If this lookup fails (no data for the hour), the **`Load`** will be the `Target Demand (MW)` [Col F] that the ramp was aiming for (or was set to, if instantaneous).
+            *   Otherwise (not "FCBL"): The **`Load`** is set to the `Target Demand (MW)` [Col F] that was ramped towards.
+        *   **Instantaneous Changes:** An instruction results in an instantaneous load change if `Target Time Stamp` [Col B] is the same as `Notification Time` [Col A]. In this case, **`Load`** is set to `Target Demand (MW)` [Col F] at the `Notification Time`, and post-ramp logic (checking Col E for "FCBL") applies immediately for that same minute.
         *   **Between Instructions:** If not ramping and no new instruction, the previous minute's load is maintained.
 *   **Excel Output:**
     *   Generates a new Excel workbook named `FADL Calculation.xlsx`.
     *   Output includes columns:
         *   `Date Time Stamp` (YYYY-MM-DD HH:MM:SS)
-        *   `Load` (MW)
+        *   `Load` (MW) - The calculated load for each minute.
         *   `Load Per Minute` (Load / 30)
+        *   `Availability (hourly)` (MW): The hourly availability value (from Availability Sheet, Col D) corresponding to the hour of the `Date Time Stamp`. This value is constant for all minutes within the same hour. Displayed as blank/NA if no availability for that hour.
+        *   `Demand (Load Demand MW)` (MW): The target demand set by the last active dispatch instruction (from Dispatch Instructions, Col F). This will be blank/NA if the system is currently following an "FCBL" post-ramp directive *and* the FCBL lookup was successful. If FCBL lookup fails, this column shows the fallback `Target Demand (MW)`.
         *   `LPM (30 Min Sum)`: This column is populated only at specific times:
             *   For rows where timestamp minute is `00` (e.g., `XX:00:00`): Value is the sum of 'Load Per Minute' from the previous 30 minutes (i.e., `(Hour-1):30:00` to `(Hour-1):59:00`).
             *   For rows where timestamp minute is `30` (e.g., `XX:30:00`): Value is the sum of 'Load Per Minute' from the first 30 minutes of the current hour (i.e., `Hour:00:00` to `Hour:29:00`).
@@ -90,13 +92,14 @@ The tool expects an Excel file (`.xlsx` or `.xls`) with the following structure:
     *   **Column D (Numeric):** `Final Availability (MW)` - The available load in MW. This column is used for:
         *   The "Use Final Availability (hourly from Col D)" starting load option (uses the first entry in the first hour of the selected month).
         *   The "FCBL" post-ramp logic (looks up the value for the current hour).
+        *   Populating the 'Availability (hourly)' output column.
     *   *Columns B and C can exist but are not currently used by the core logic for these features.*
 
 **Important Notes on Input Data:**
 *   Ensure all timestamp columns are in a format pandas can recognize (e.g., `YYYY-MM-DD HH:MM:SS`).
 *   `Ramp Duration (Minutes)` [Col C] is expected to be positive. If found to be missing or non-positive during parsing (and a ramp is necessary), it will default to 1 minute, and a warning will be logged.
 *   The effect of a ramp (change in load due to ramp rate) starts from the minute *following* the `Notification Time`. The load recorded *at* the `Notification Time` is the load just before the new ramp is initiated.
-*   The "FCBL" string in Column E of "Dispatch Instructions" must be exact (though it's processed case-insensitively) to trigger the hourly availability lookup.
+*   The "FCBL" string in Column E of "Dispatch Instructions" must be exact (though it's processed case-insensitively) to trigger the hourly availability lookup. If "FCBL" is specified and lookup fails, the load defaults to the `Target Demand (MW)` from Column F.
 *   Hourly lookups in the "Availability" sheet (Column D) use the *first valid numeric entry* found within the specified hour.
 
 ## Using the Tool
