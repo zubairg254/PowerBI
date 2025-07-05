@@ -12,131 +12,98 @@ from dateutil.relativedelta import relativedelta
 class LoadProcessorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("FADL Load Processor - New Logic") # Updated title
+        self.root.title("FADL Load Processor - New Logic")
         self.root.geometry("800x700")
         self.root.minsize(600, 500)
 
-        # --- Variables ---
         self.file_path_var = tk.StringVar()
         self.month_var = tk.StringVar()
-        # Default to new "FinalAvailabilityHourly" option
         self.start_load_type_var = tk.StringVar(value="FinalAvailabilityHourly")
         self.custom_load_var = tk.DoubleVar(value=0.0)
         self.export_dir_var = tk.StringVar()
         self.df_dispatch = None
         self.df_availability = None
-        self.availability_series_hourly_lookup = None # For faster hourly lookups
+        self.availability_series_hourly_lookup = None
 
-        # --- Main Frame ---
         main_frame = ttk.Frame(root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         root.columnconfigure(0, weight=1)
         root.rowconfigure(0, weight=1)
 
-        # --- File Selection ---
         file_frame = ttk.LabelFrame(main_frame, text="Input File", padding="10")
         file_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
         file_frame.columnconfigure(1, weight=1)
-
         ttk.Label(file_frame, text="Excel File:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         ttk.Entry(file_frame, textvariable=self.file_path_var, width=60).grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         ttk.Button(file_frame, text="Browse...", command=self.browse_file).grid(row=0, column=2, sticky=tk.E, padx=5, pady=5)
 
-        # --- Configuration ---
         config_frame = ttk.LabelFrame(main_frame, text="Processing Configuration", padding="10")
         config_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
         config_frame.columnconfigure(1, weight=1)
-
         ttk.Label(config_frame, text="Month to Process:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         self.month_combo = ttk.Combobox(config_frame, textvariable=self.month_var, state="readonly", width=15)
         self.month_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         self.month_combo['values'] = ["Select a file first"]
-
-        # --- Starting Load Type ---
         ttk.Label(config_frame, text="Starting Load Type:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-
-        # Option 1: Use Final Availability (hourly)
         final_avail_radio = ttk.Radiobutton(config_frame,
                                             text="Use Final Availability (hourly from Col D)",
                                             variable=self.start_load_type_var,
                                             value="FinalAvailabilityHourly",
                                             command=self.toggle_custom_load_entry)
         final_avail_radio.grid(row=1, column=1, sticky=tk.W, padx=5, pady=2)
-
-        # Option 2: Custom Load (Radio button and Entry field)
-        custom_load_frame = ttk.Frame(config_frame) # Frame to group "Custom Load" radio and its entry
-        custom_load_frame.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=0, pady=0) # Placed below the other radio
-
+        custom_load_frame = ttk.Frame(config_frame)
+        custom_load_frame.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=0, pady=0)
         custom_radio = ttk.Radiobutton(custom_load_frame,
                                        text="Custom Load:",
                                        variable=self.start_load_type_var,
                                        value="Custom",
                                        command=self.toggle_custom_load_entry)
         custom_radio.grid(row=0, column=0, sticky=tk.W, pady=2)
-
         self.custom_load_entry = ttk.Entry(custom_load_frame,
                                            textvariable=self.custom_load_var,
                                            width=10,
-                                           state=tk.DISABLED) # Initial state based on default start_load_type_var
+                                           state=tk.DISABLED)
         self.custom_load_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
-        # --- Export Location ---
         export_frame = ttk.LabelFrame(main_frame, text="Output", padding="10")
-        export_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5) # This will be to the right of config
+        export_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
         export_frame.columnconfigure(1, weight=1)
-
         ttk.Label(export_frame, text="Export Folder:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         ttk.Entry(export_frame, textvariable=self.export_dir_var, width=40).grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
         ttk.Button(export_frame, text="Browse...", command=self.browse_export_dir).grid(row=0, column=2, sticky=tk.E, padx=5, pady=5)
 
-        # --- Controls & Progress ---
         run_frame = ttk.Frame(main_frame, padding="10")
         run_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=5)
         run_frame.columnconfigure(0, weight=1)
-
         self.process_button = ttk.Button(run_frame, text="Start Processing", command=self.start_processing_thread, width=20)
         self.process_button.grid(row=0, column=1, sticky=tk.E, padx=5, pady=5)
-
         self.progress_bar = ttk.Progressbar(run_frame, orient=tk.HORIZONTAL, mode='determinate')
         self.progress_bar.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=5, pady=5)
 
-        # --- Status Log ---
         log_frame = ttk.LabelFrame(main_frame, text="Status Log", padding="10")
         log_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5, pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-
         self.log_text = tk.Text(log_frame, height=10, wrap=tk.WORD, state=tk.DISABLED)
         log_scroll = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.log_text.yview)
         self.log_text['yscrollcommand'] = log_scroll.set
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         log_scroll.grid(row=0, column=1, sticky=(tk.N, tk.S))
 
-        # --- Initial Status ---
         self.status_log("Application started. Please select an Excel file.")
-        self.toggle_custom_load_entry() # Set initial state of custom load entry
+        self.toggle_custom_load_entry()
 
     def browse_file(self):
-        file_path = filedialog.askopenfilename(
-            title="Select Excel File",
-            filetypes=(("Excel files", "*.xlsx *.xls"), ("All files", "*.*"))
-        )
+        file_path = filedialog.askopenfilename(title="Select Excel File", filetypes=(("Excel files", "*.xlsx *.xls"), ("All files", "*.*")))
         if file_path:
             self.file_path_var.set(file_path)
             self.status_log(f"Selected input file: {file_path}")
-            self.df_dispatch = None
-            self.df_availability = None
-            self.availability_series_hourly_lookup = None
+            self.df_dispatch, self.df_availability, self.availability_series_hourly_lookup = None, None, None
             self.process_button.config(state=tk.DISABLED)
-
             _, _, available_months = self.read_excel_data(file_path)
             if self.df_dispatch is not None and available_months:
                 self.month_combo['values'] = available_months
-                if available_months:
-                    self.month_var.set(available_months[0])
-                else:
-                    self.month_var.set("")
-                    self.month_combo['values'] = ["No months found"]
+                self.month_var.set(available_months[0] if available_months else "")
                 self.status_log(f"Available months populated: {available_months if available_months else 'None'}")
                 if self.df_availability is not None :
                     self.process_button.config(state=tk.NORMAL)
@@ -144,34 +111,27 @@ class LoadProcessorApp:
             else:
                 self.month_combo['values'] = ["Error reading/parsing file"]
                 self.month_var.set("")
-                self.status_log("Could not populate months. Error reading file, missing sheets, or no valid date data in Dispatch Instructions.")
-        else:
-            self.status_log("File selection cancelled.")
+                self.status_log("Could not populate months. Check file/sheet integrity and Dispatch Col A for dates.")
+        else: self.status_log("File selection cancelled.")
 
     def browse_export_dir(self):
         dir_path = filedialog.askdirectory(title="Select Export Directory")
-        if dir_path:
-            self.export_dir_var.set(dir_path)
-            self.status_log(f"Selected export directory: {dir_path}")
-        else:
-            self.status_log("Export directory selection cancelled.")
+        if dir_path: self.export_dir_var.set(dir_path); self.status_log(f"Selected export directory: {dir_path}")
+        else: self.status_log("Export directory selection cancelled.")
 
     def toggle_custom_load_entry(self):
-        if self.start_load_type_var.get() == "Custom":
-            self.custom_load_entry.config(state=tk.NORMAL)
-        else:
-            self.custom_load_entry.config(state=tk.DISABLED)
-            self.custom_load_var.set(0.0)
+        self.custom_load_entry.config(state=tk.NORMAL if self.start_load_type_var.get() == "Custom" else tk.DISABLED)
+        if self.start_load_type_var.get() != "Custom": self.custom_load_var.set(0.0)
         self.status_log(f"Start load type set to: {self.start_load_type_var.get()}")
 
     def _prepare_hourly_availability_lookup(self):
         self.availability_series_hourly_lookup = None
         if self.df_availability is None or self.df_availability.empty:
-            self.status_log_safe("Availability data is empty, cannot prepare hourly lookup.")
+            self.root.after(0, self.status_log_safe,"Availability data empty, cannot prepare hourly lookup.") # Use root.after for thread safety
             return
         try:
             if len(self.df_availability.columns) < 4:
-                self.status_log_safe("Availability sheet has < 4 columns. Cannot prepare hourly lookup from Col D.")
+                self.root.after(0, self.status_log_safe,"Availability sheet < 4 columns. Cannot prepare hourly lookup from Col D.")
                 return
             avail_df = self.df_availability.copy()
             if not pd.api.types.is_datetime64_any_dtype(avail_df.iloc[:, 0]):
@@ -180,32 +140,30 @@ class LoadProcessorApp:
                 avail_df.iloc[:, 3] = pd.to_numeric(avail_df.iloc[:, 3], errors='coerce')
             avail_df.dropna(subset=[avail_df.columns[0], avail_df.columns[3]], inplace=True)
             if avail_df.empty:
-                self.status_log_safe("No valid data in Availability sheet (Cols A & D) for hourly lookup.")
+                self.root.after(0, self.status_log_safe,"No valid data in Availability sheet (Cols A & D) for hourly lookup.")
                 return
             avail_df = avail_df.set_index(avail_df.columns[0])
             load_series = avail_df.iloc[:, 2]
             self.availability_series_hourly_lookup = load_series.resample('h').first()
-            self.status_log_safe("Hourly availability lookup table prepared.")
+            self.root.after(0, self.status_log_safe,"Hourly availability lookup table prepared.")
         except Exception as e:
-            self.status_log_safe(f"Error preparing hourly availability lookup: {e}")
+            self.root.after(0, self.status_log_safe,f"Error preparing hourly availability lookup: {e}")
             self.availability_series_hourly_lookup = None
 
-    def get_hourly_final_availability(self, timestamp_obj, availability_df_month=None):
+    def get_hourly_final_availability(self, timestamp_obj): # Removed unused availability_df_month
         if self.availability_series_hourly_lookup is None:
-            self.root.after(0, self.status_log_safe, f"Warning: Hourly availability lookup series not prepared. Cannot get value for {timestamp_obj}.")
+            # self.root.after(0, self.status_log_safe, f"Warning: Hourly availability lookup series not prepared. Cannot get value for {timestamp_obj}.") # Potentially too verbose
             return None
         try:
             lookup_hour = timestamp_obj.replace(minute=0, second=0, microsecond=0)
             available_load = self.availability_series_hourly_lookup.get(lookup_hour)
-            if pd.notna(available_load):
-                return float(available_load)
-            else:
-                return None
+            return float(available_load) if pd.notna(available_load) else None
         except Exception as e:
             self.root.after(0, self.status_log_safe, f"Error during hourly availability lookup for {timestamp_obj}: {e}")
             return None
 
     def read_excel_data(self, file_path):
+        # ... (read_excel_data content remains largely the same, ensure it uses self.status_log directly)
         self.status_log(f"Reading Excel file: {file_path}")
         self.df_dispatch = None
         self.df_availability = None
@@ -295,7 +253,7 @@ class LoadProcessorApp:
             self.root.after(0, self._show_messagebox_safe, "warning", "Data Warning", f"No availability data for the first hour of {selected_month_dt.strftime('%b-%y')} (Col D). Cannot determine Initial Hourly Availability.")
             return None
 
-    def perform_minute_wise_processing(self, dispatch_df_month, availability_df_month, selected_month_dt, start_load):
+    def perform_minute_wise_processing(self, dispatch_df_month, availability_df_month_full, selected_month_dt, start_load):
         self.root.after(0, self.status_log_safe, f"Starting minute-wise processing for {selected_month_dt.strftime('%b-%y')} with initial load: {start_load:.2f} MW.")
         month_start_dt = selected_month_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         next_month_start_dt = (month_start_dt + relativedelta(months=1))
@@ -303,8 +261,11 @@ class LoadProcessorApp:
         self.root.after(0, self.status_log_safe, f"Month: {selected_month_dt.strftime('%b-%y')}, Total minutes: {total_minutes_in_month}")
         timestamps = pd.date_range(start=month_start_dt, periods=total_minutes_in_month, freq='min')
         results_list = []
-        current_load = float(start_load)
+
+        current_load = float(start_load) # Load at the END of the previous minute / START of current minute ts
+
         parsed_instructions = []
+        # ... (Instruction parsing logic as before - confirmed to be okay) ...
         if dispatch_df_month is not None and not dispatch_df_month.empty:
             if len(dispatch_df_month.columns) < 6:
                 self.root.after(0, self.status_log_safe, "Dispatch Instructions sheet has insufficient columns (expected at least 6 for A-F). Processing without dispatch instructions.")
@@ -338,176 +299,142 @@ class LoadProcessorApp:
 
         instr_idx = 0
         active_ramp_rate = 0.0
-        ramp_end_time = None # Timestamp when the current ramp segment ends
+        ramp_end_time = None
         is_ramping = False
-        # current_ramp_target_mw stores the target_demand_mw of the instruction that initiated the current ramp
-        current_ramp_target_mw = start_load # Initialize with start_load or an appropriate default
-        # current_post_ramp_type stores the post_ramp_target_type of the instruction that initiated the current ramp
+        current_ramp_target_mw = start_load
         current_post_ramp_type = None
 
-        active_hourly_availability = np.nan # For the new output column
-        # active_dispatch_demand should reflect the target_demand_mw from the current governing instruction,
-        # or NA if under FCBL post-ramp. Initialize to start_load if no instruction yet.
-        active_dispatch_demand = start_load
-        # is_following_fcbl_directive helps determine if active_dispatch_demand should be NA
-        is_following_fcbl_directive = False
-        if self.start_load_type_var.get() == "FinalAvailabilityHourly" and start_load is not None:
-            # If starting with availability, it's like an initial FCBL mode for demand reporting
-            # However, this might be confusing if there's an immediate dispatch.
-            # Let's assume start_load sets initial load, but demand is only set by dispatch.
-            active_dispatch_demand = np.nan # No dispatch demand initially if starting with availability
+        active_hourly_availability = np.nan
+        active_dispatch_demand = start_load if self.start_load_type_var.get() == "Custom" else np.nan
+        is_following_fcbl_directive = self.start_load_type_var.get() == "FinalAvailabilityHourly"
+        # Store the target that led to FCBL mode, for fallback
+        fallback_fcbl_target_load = start_load if not is_following_fcbl_directive else np.nan
+
 
         log_update_interval = max(1, total_minutes_in_month // 100)
 
         for i, ts in enumerate(timestamps):
-            # Update active_hourly_availability at the start of each hour for the output column
-            if ts.minute == 0:
+            load_for_this_minute = current_load # Load at the start of minute 'ts'
+
+            if ts.minute == 0: # Update hourly availability cache
                 hourly_avail_val = self.get_hourly_final_availability(ts)
                 active_hourly_availability = float(hourly_avail_val) if pd.notna(hourly_avail_val) else np.nan
 
-            # --- Step 1: Apply ongoing ramp from *previous* minute's state ---
-            # The load recorded for 'ts' is the load *at the beginning* of minute 'ts'.
-            # If a ramp was active, current_load for 'ts' is current_load from 'ts-1' + one increment.
-            if is_ramping and ramp_end_time is not None and ts <= ramp_end_time :
-                # Only add ramp if this is NOT the first minute of the ramp.
-                # The first minute of the ramp (ts == instruction_time) should record the pre-ramp load.
-                # The ramp rate's effect begins influencing the load for ts+1.
-                # This logic is tricky. Let's adjust: current_load for ts is set *before* this block.
-                # This block calculates load for *end* of ts, to be used as start of ts+1.
-                pass # Ramp increment will be handled *after* recording current_load for ts, effectively.
+            # 1. Apply active FCBL directive first (overrides ramps)
+            if is_following_fcbl_directive:
+                hourly_avail = self.get_hourly_final_availability(ts) # Re-check for current hour
+                if hourly_avail is not None:
+                    load_for_this_minute = hourly_avail
+                    # active_dispatch_demand remains np.nan (already set or will be by new FCBL instr)
+                else: # Fallback if FCBL lookup fails for this hour
+                    load_for_this_minute = fallback_fcbl_target_load if pd.notna(fallback_fcbl_target_load) else load_for_this_minute # Use fallback or last known load
+                    # active_dispatch_demand remains fallback_fcbl_target_load
+                    self.root.after(0, self.status_log_safe, f"    Minute {ts.strftime('%H:%M')}: FCBL mode, but no availability for this hour. Using fallback load: {load_for_this_minute:.2f}")
 
-            load_for_this_minute_ts = current_load # This is load at start of minute ts
-
-            post_ramp_action_taken_this_minute = False
-
-            # --- Step 2: Check for ramp completion that occurs exactly at 'ts' ---
-            if is_ramping and ramp_end_time is not None and ts == ramp_end_time:
-                self.root.after(0, self.status_log_safe, f"  Minute {ts.strftime('%H:%M')}: Ramp ended. Snapping to target: {current_ramp_target_mw:.2f} MW.")
-                current_load = current_ramp_target_mw # Snap to target
-                is_ramping = False
-                # active_ramp_rate = 0.0 # Will be reset if no new ramp starts
-
-                # Apply post-ramp logic
-                if current_post_ramp_type == "FCBL":
-                    hourly_avail = self.get_hourly_final_availability(ts)
-                    if hourly_avail is not None:
-                        current_load = hourly_avail
-                        active_dispatch_demand = np.nan
-                        is_following_fcbl_directive = True
-                        self.root.after(0, self.status_log_safe, f"    Post-ramp FCBL. Load set to Final Availability: {current_load:.2f} MW for hour {ts.strftime('%H')}.")
-                    else:
-                        active_dispatch_demand = current_ramp_target_mw # Fallback
-                        is_following_fcbl_directive = False
-                        self.root.after(0, self.status_log_safe, f"    Post-ramp FCBL, but no Final Availability for hour {ts.strftime('%H')}. Load remains target: {current_load:.2f} MW.")
-                else: # Not FCBL, load is target_demand_mw
-                    active_dispatch_demand = current_ramp_target_mw
-                    is_following_fcbl_directive = False
-                post_ramp_action_taken_this_minute = True
-
-
-            # --- Step 3: Process new instruction starting exactly at 'ts' ---
+            # 2. Process new instruction (can override FCBL mode or ongoing ramp)
             if instr_idx < len(parsed_instructions) and ts == parsed_instructions[instr_idx]['instr_time']:
                 instr = parsed_instructions[instr_idx]
-                self.root.after(0, self.status_log_safe, f"  Minute {ts.strftime('%H:%M')}: New instruction received. Target: {instr['target_demand_mw']:.2f}, Duration: {instr['ramp_duration_minutes']}, TargetTime: {instr['target_time_stamp']}, PostRamp: {instr['post_ramp_target_type']}")
+                self.root.after(0, self.status_log_safe, f"  Minute {ts.strftime('%H:%M')}: Instruction at {instr['instr_time']}. Target: {instr['target_demand_mw']:.2f}, Duration: {instr['ramp_duration_minutes']}, TargetTime: {instr['target_time_stamp']}, PostRamp: {instr['post_ramp_target_type']}")
 
-                # current_load at this point is the load at the START of minute ts,
-                # potentially after a previous ramp segment just ended and applied its post-ramp logic.
+                is_following_fcbl_directive = False # New instruction overrides previous FCBL state initially
+                is_ramping = False # Assume new instruction might stop previous ramp
+                active_ramp_rate = 0.0
 
-                new_target_demand = instr['target_demand_mw']
-                new_duration = instr['ramp_duration_minutes'] # Already defaulted to >=1
-                new_target_time = instr['target_time_stamp']
-                new_post_ramp_type = instr['post_ramp_target_type']
+                current_ramp_target_mw = instr['target_demand_mw']
+                current_post_ramp_type = instr['post_ramp_target_type']
+                active_dispatch_demand = current_ramp_target_mw # Default demand to instruction's target
+                fallback_fcbl_target_load = current_ramp_target_mw # Store this as potential fallback
 
-                active_dispatch_demand = new_target_demand # This instruction's target is now the active demand
-                is_following_fcbl_directive = False # New instruction overrides previous FCBL follow
+                duration = instr['ramp_duration_minutes']
 
-                # Determine if instantaneous based on Target Time Stamp vs Instruction Time
-                is_instantaneous = (pd.notna(new_target_time) and new_target_time == ts)
+                is_instantaneous = pd.notna(instr['target_time_stamp']) and instr['target_time_stamp'] == ts
 
                 if is_instantaneous:
-                    self.root.after(0, self.status_log_safe, f"    Instantaneous change to target: {new_target_demand:.2f} MW.")
-                    current_load = new_target_demand
-                    is_ramping = False
-                    active_ramp_rate = 0.0
+                    load_for_this_minute = current_ramp_target_mw
                     ramp_end_time = ts
-                    current_ramp_target_mw = new_target_demand
-                    current_post_ramp_type = new_post_ramp_type
-
-                    # Apply post-ramp logic immediately for instantaneous changes
-                    if new_post_ramp_type == "FCBL":
+                    self.root.after(0, self.status_log_safe, f"    Instantaneous change to target: {load_for_this_minute:.2f} MW.")
+                    # Post-ramp logic applies immediately for instantaneous
+                    if current_post_ramp_type == "FCBL":
                         hourly_avail = self.get_hourly_final_availability(ts)
                         if hourly_avail is not None:
-                            current_load = hourly_avail
+                            load_for_this_minute = hourly_avail
                             active_dispatch_demand = np.nan
                             is_following_fcbl_directive = True
-                            self.root.after(0, self.status_log_safe, f"    Instantaneous FCBL. Load set to Final Availability: {current_load:.2f} MW for hour {ts.strftime('%H')}.")
-                        else:
-                            # active_dispatch_demand remains new_target_demand (fallback)
-                            self.root.after(0, self.status_log_safe, f"    Instantaneous FCBL, but no Final Availability for hour {ts.strftime('%H')}. Load remains target: {current_load:.2f} MW.")
-                    # else: current_load is already new_target_demand, active_dispatch_demand is new_target_demand
-                    post_ramp_action_taken_this_minute = True # To prevent ramp increment below if any was set before this block
-
-                else: # It's a ramp
-                    if current_load == new_target_demand: # If already at target, no ramp needed
-                        active_ramp_rate = 0.0
-                        is_ramping = False
-                        ramp_end_time = ts # Effectively ends now
-                        current_ramp_target_mw = new_target_demand
-                        current_post_ramp_type = new_post_ramp_type
-                        post_ramp_action_taken_this_minute = True # Trigger post-ramp check
-                        self.root.after(0, self.status_log_safe, f"    Load {current_load:.2f} already at new target {new_target_demand:.2f}. No ramp initiated. Checking post-ramp type.")
-                    else: # Calculate ramp
-                        is_ramping = True
-                        current_ramp_target_mw = new_target_demand
-                        current_post_ramp_type = new_post_ramp_type
-
-                        # Determine ramp_end_time for this new ramp
-                        if pd.notna(new_target_time) and new_target_time > ts:
-                            ramp_end_time = new_target_time
-                            effective_duration_td = ramp_end_time - ts
-                            effective_duration_minutes = max(1.0, effective_duration_td.total_seconds() / 60) # Ensure positive
-                            if abs(effective_duration_minutes - new_duration) > 1 and new_duration > 0: # Log if user duration differs
-                                 self.root.after(0, self.status_log_safe, f"    Note: Ramp Duration (Col C: {new_duration} min) used for rate, but end time determined by Target Time Stamp (Col B: {ramp_end_time.strftime('%Y-%m-%d %H:%M')}). Effective ramp duration: {effective_duration_minutes:.1f} min.")
-                            # Rate is based on load *at start of ts* before this new ramp applies.
-                            active_ramp_rate = (new_target_demand - load_for_this_minute_ts) / effective_duration_minutes
-                            self.root.after(0, self.status_log_safe, f"    New ramp started. Rate: {active_ramp_rate:.2f} MW/min. Target Time: {ramp_end_time.strftime('%Y-%m-%d %H:%M')}.")
-                        else: # No valid future Target Time Stamp, use duration from Col C
-                            ramp_end_time = ts + datetime.timedelta(minutes=new_duration)
-                            active_ramp_rate = (new_target_demand - load_for_this_minute_ts) / new_duration
-                            if pd.notna(new_target_time) and new_target_time <= ts:
-                                 self.root.after(0, self.status_log_safe, f"    Warning: Target Time Stamp {new_target_time} is not in future. Using Ramp Duration {new_duration} min. Calculated Ramp End: {ramp_end_time.strftime('%Y-%m-%d %H:%M')}")
-                            self.root.after(0, self.status_log_safe, f"    New ramp started (Col B empty/past). Rate: {active_ramp_rate:.2f} MW/min. Duration: {new_duration} min. Calculated Ramp End: {ramp_end_time.strftime('%Y-%m-%d %H:%M')}")
+                            self.root.after(0, self.status_log_safe, f"    Instantaneous FCBL. Load set to: {load_for_this_minute:.2f} MW.")
+                        else: # FCBL lookup failed, load_for_this_minute is already target, active_dispatch_demand is target
+                            self.root.after(0, self.status_log_safe, f"    Instantaneous FCBL, but no availability. Load remains target: {load_for_this_minute:.2f} MW.")
+                elif load_for_this_minute == current_ramp_target_mw: # Already at target
+                    self.root.after(0, self.status_log_safe, f"    Load {load_for_this_minute:.2f} already at new target. No ramp. Checking post-ramp.")
+                    ramp_end_time = ts # Ends now
+                    if current_post_ramp_type == "FCBL": # Check post-ramp FCBL
+                        hourly_avail = self.get_hourly_final_availability(ts)
+                        if hourly_avail is not None:
+                            load_for_this_minute = hourly_avail; active_dispatch_demand = np.nan; is_following_fcbl_directive = True
+                            self.root.after(0, self.status_log_safe, f"    FCBL (no ramp). Load set to: {load_for_this_minute:.2f} MW.")
+                        else: self.root.after(0, self.status_log_safe, f"    FCBL (no ramp), no availability. Load remains target: {load_for_this_minute:.2f} MW.")
+                else: # Start a ramp
+                    is_ramping = True
+                    if pd.notna(instr['target_time_stamp']) and instr['target_time_stamp'] > ts:
+                        ramp_end_time = instr['target_time_stamp']
+                        effective_duration_minutes = max(1.0, (ramp_end_time - ts).total_seconds() / 60)
+                        if abs(effective_duration_minutes - duration) > 1 and duration > 0:
+                             self.root.after(0, self.status_log_safe, f"    Note: Ramp Duration (Col C: {duration} min) differs from time to Target Time Stamp (Col B). Using duration to Target Time Stamp ({effective_duration_minutes:.1f} min).")
+                        duration = effective_duration_minutes
+                    else:
+                        ramp_end_time = ts + datetime.timedelta(minutes=duration)
+                        if pd.notna(instr['target_time_stamp']): # Log if target_time_stamp was not usable
+                             self.root.after(0, self.status_log_safe, f"    Warning: Target Time Stamp {instr['target_time_stamp']} is not in future or invalid. Using Ramp Duration {duration} min. Calculated Ramp End: {ramp_end_time.strftime('%Y-%m-%d %H:%M')}")
+                    active_ramp_rate = (current_ramp_target_mw - load_for_this_minute) / duration
+                    self.root.after(0, self.status_log_safe, f"    New ramp started. Rate: {active_ramp_rate:.2f} MW/min towards {current_ramp_target_mw:.2f} by {ramp_end_time.strftime('%Y-%m-%d %H:%M')}.")
                 instr_idx += 1
 
-            # --- Step 4: Record the load for minute `ts` ---
-            # `current_load` at this point is the load that persists through minute `ts`.
-            # If a new ramp was just initiated, its first increment hasn't been applied to current_load yet.
+            # 3. If not following FCBL and a ramp is active (and wasn't just completed by a new instruction)
+            elif is_ramping and ramp_end_time is not None: # No new instruction, but was ramping
+                if ts < ramp_end_time: # Ramp continues
+                    # load_for_this_minute was already set by previous iteration's end + ramp_rate
+                    # current_load for next iter will be load_for_this_minute + active_ramp_rate
+                    pass # The load_for_this_minute is already correct due to previous iteration's calculation for current_load
+                elif ts == ramp_end_time: # Ramp ends now
+                    load_for_this_minute = current_ramp_target_mw # Snap to target for this minute
+                    is_ramping = False
+                    self.root.after(0, self.status_log_safe, f"  Minute {ts.strftime('%H:%M')}: Ongoing ramp ended. Load at target: {load_for_this_minute:.2f} MW.")
+                    if current_post_ramp_type == "FCBL":
+                        hourly_avail = self.get_hourly_final_availability(ts)
+                        if hourly_avail is not None:
+                            load_for_this_minute = hourly_avail
+                            active_dispatch_demand = np.nan
+                            is_following_fcbl_directive = True
+                            fallback_fcbl_target_load = current_ramp_target_mw # Store this
+                            self.root.after(0, self.status_log_safe, f"    Post-ramp FCBL. Load set to: {load_for_this_minute:.2f} MW.")
+                        else: # FCBL lookup failed
+                            active_dispatch_demand = current_ramp_target_mw
+                            is_following_fcbl_directive = False # Not following if lookup fails
+                            self.root.after(0, self.status_log_safe, f"    Post-ramp FCBL, no availability. Load remains target: {load_for_this_minute:.2f} MW.")
+                    else: # Not FCBL
+                        active_dispatch_demand = current_ramp_target_mw
+                        is_following_fcbl_directive = False
+
+            # Record results for minute ts
             results_list.append({
                 'Date Time Stamp': ts,
-                'Load': round(load_for_this_minute_ts, 3), # Record load at START of minute ts
-                'Load Per Minute': round(load_for_this_minute_ts / 30.0, 5),
+                'Load': round(load_for_this_minute, 3),
+                'Load Per Minute': round(load_for_this_minute / 30.0, 5),
                 'Availability (hourly)': round(active_hourly_availability, 2) if pd.notna(active_hourly_availability) else pd.NA,
                 'Demand (Load Demand MW)': round(active_dispatch_demand, 2) if pd.notna(active_dispatch_demand) else pd.NA
             })
 
-            # --- Step 5: Apply ramp for *next* minute's start if a ramp is now active ---
-            # This current_load will be load_for_this_minute_ts for the next iteration
-            if is_ramping and not post_ramp_action_taken_this_minute: # If ramp is active and didn't just end
-                if ramp_end_time is not None and ts < ramp_end_time : # Check if ramp_end_time is valid
-                     current_load = load_for_this_minute_ts + active_ramp_rate # current_load for start of NEXT minute
-                # If ts == ramp_end_time, it was handled in Step 2, current_load snapped, is_ramping=False.
-            elif not is_ramping : # If not ramping (either ended or never started), load is maintained unless changed by new instruction
-                current_load = load_for_this_minute_ts # effectively, unless an instruction changed it.
+            # Prepare current_load for the START of the next minute
+            if is_ramping and ramp_end_time is not None and ts < ramp_end_time :
+                current_load = load_for_this_minute + active_ramp_rate
+            else: # Not ramping, or ramp just ended
+                current_load = load_for_this_minute
 
-
+        # Final progress update and logging
         self.root.after(0, self.update_progress_safe, 100)
         self.root.after(0, self.status_log_safe, "Core minute-wise load calculation loop finished.")
-
-        if not results_list:
-            self.root.after(0, self.status_log_safe, "Warning: No results generated. Returning empty DataFrame.")
-            return pd.DataFrame(columns=['Date Time Stamp', 'Load', 'Load Per Minute',
-                                         'Availability (hourly)', 'Demand (Load Demand MW)',
-                                         'LPM (30 Min Sum)'])
+        if not results_list: # Should not happen if timestamps list is generated
+            self.root.after(0, self.status_log_safe, "Warning: No results generated from processing loop.")
+            return pd.DataFrame(columns=['Date Time Stamp', 'Load', 'Load Per Minute', 'Availability (hourly)', 'Demand (Load Demand MW)', 'LPM (30 Min Sum)'])
 
         results_df = pd.DataFrame(results_list)
 
@@ -728,5 +655,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = LoadProcessorApp(root)
     root.mainloop()
-
-[end of load_processor_gui.py]
