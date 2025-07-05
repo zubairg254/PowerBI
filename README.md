@@ -19,13 +19,14 @@ This Python-based GUI tool processes minute-wise load data from an Excel input f
         *   **Ramp Calculation:**
             *   Ramp Rate (RR) = (`Target Demand (MW)` [Col F] - Previous Load) / `Ramp Duration (Minutes)` [Col C].
             *   `Ramp Duration (Minutes)` [Col C] is expected to be a positive number. If missing or invalid, it defaults to 1 minute with a warning.
-            *   Load during ramp: `Previous Load + RR` per minute.
+            *   The load recorded for the minute of the instruction (`Notification Time` [Col A]) is the load *before* this new ramp begins. The first change in load due to the ramp is seen in the minute *following* the Notification Time.
+            *   Load during ramp: `Previous Load + RR` per minute (effective from the minute after notification).
             *   Ramp continues until `Target Time Stamp` [Col B] is reached (preferred) or for the specified `Ramp Duration` [Col C] (if Col B is invalid/missing or not in the future relative to instruction time).
             *   Load is **not** capped at `Target Demand (MW)` during the ramp itself.
         *   **Post-Ramp / At Target Time Stamp:**
             *   If `Post-Ramp Target Type` [Col E] is "FCBL" (case-insensitive): The load is set by looking up "Final Availability" (from "Availability" Col D) for the current hour. If not found, load remains at the ramped target (`Target Demand (MW)` from Col F).
             *   Otherwise: Load is set to the `Target Demand (MW)` [Col F] that was ramped towards.
-        *   **Instantaneous Changes:** An instruction results in an instantaneous load change if `Target Time Stamp` [Col B] is the same as `Notification Time` [Col A]. In this case, load is set to `Target Demand (MW)` [Col F], and post-ramp logic (checking Col E) applies immediately.
+        *   **Instantaneous Changes:** An instruction results in an instantaneous load change if `Target Time Stamp` [Col B] is the same as `Notification Time` [Col A]. In this case, load is set to `Target Demand (MW)` [Col F] at the `Notification Time`, and post-ramp logic (checking Col E) applies immediately for that same minute.
         *   **Between Instructions:** If not ramping and no new instruction, the previous minute's load is maintained.
 *   **Excel Output:**
     *   Generates a new Excel workbook named `FADL Calculation.xlsx`.
@@ -94,6 +95,7 @@ The tool expects an Excel file (`.xlsx` or `.xls`) with the following structure:
 **Important Notes on Input Data:**
 *   Ensure all timestamp columns are in a format pandas can recognize (e.g., `YYYY-MM-DD HH:MM:SS`).
 *   `Ramp Duration (Minutes)` [Col C] is expected to be positive. If found to be missing or non-positive during parsing (and a ramp is necessary), it will default to 1 minute, and a warning will be logged.
+*   The effect of a ramp (change in load due to ramp rate) starts from the minute *following* the `Notification Time`. The load recorded *at* the `Notification Time` is the load just before the new ramp is initiated.
 *   The "FCBL" string in Column E of "Dispatch Instructions" must be exact (though it's processed case-insensitively) to trigger the hourly availability lookup.
 *   Hourly lookups in the "Availability" sheet (Column D) use the *first valid numeric entry* found within the specified hour.
 
