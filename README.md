@@ -1,25 +1,34 @@
-# FADL Load Processor GUI Tool
+# FADL Load Processor GUI Tool (Revised Logic)
 
-This Python-based GUI tool processes minute-wise load data from an Excel input file, performs calculations based on dispatch instructions and availability, and exports the results to a new Excel workbook.
+This Python-based GUI tool processes minute-wise load data from an Excel input file, performs calculations based on dispatch instructions and availability, and exports the results to a new Excel workbook. This version incorporates revised processing logic.
 
 ## Features
 
 *   **Graphical User Interface (GUI):** Easy-to-use interface for file selection, configuration, and processing.
 *   **Excel Input:** Reads data from a specified Excel file containing "Dispatch Instructions" and "Availability" sheets.
 *   **Configurable Processing:**
-    *   Select the specific month (mmm-yy format) to process from the input data.
+    *   Select the specific month (mmm-yy format) to process from the input data (derived from "Dispatch Instructions" Column A).
     *   Choose a starting load type:
         *   **Custom Load:** Manually enter a starting load value (MW).
-        *   **FCBL (First Cleared Bid Load):** Automatically fetches the load from the first hour of availability data for the selected month.
-*   **Minute-by-Minute Calculation:**
+        *   **Use Final Availability (hourly from Col D):** Automatically fetches the starting load from Column D of the "Availability" sheet, based on the first hour of the selected month.
+*   **Minute-by-Minute Calculation (Revised Logic):**
     *   Processes load data for every minute of the selected month.
-    *   Applies logic for:
-        *   Initial load (Custom or FCBL).
-        *   Ramp rates as per dispatch instructions (ramping is not capped by target loads).
-        *   Maintaining previous load or using "Final Availability" data when between instructions.
+    *   **Starting Load:** Determined by user selection (Custom or Final Availability from "Availability" Col D, first hour of month).
+    *   **Dispatch Instruction Processing:**
+        *   Instructions are read from the "Dispatch Instructions" sheet.
+        *   **Ramp Calculation:**
+            *   Ramp Rate (RR) = (`Target Demand (MW)` [Col F] - Previous Load) / `Ramp Duration (Minutes)` [Col C].
+            *   Load during ramp: `Previous Load + RR` per minute.
+            *   Ramp continues until `Target Time Stamp` [Col B] is reached (or for the specified `Ramp Duration` [Col C]).
+            *   Load is **not** capped at `Target Demand (MW)` during the ramp itself.
+        *   **Post-Ramp / At Target Time Stamp:**
+            *   If `Post-Ramp Target Type` [Col E] is "FCBL": The load is set by looking up "Final Availability" (from "Availability" Col D) for the current hour. If not found, load remains at the ramped target.
+            *   Otherwise: Load is set to the `Target Demand (MW)` [Col F] that was ramped towards.
+        *   **Instantaneous Changes:** If `Ramp Duration (Minutes)` [Col C] is 0 or not positive, the load changes to `Target Demand (MW)` [Col F] instantly, and post-ramp logic (checking Col E) applies immediately.
+        *   **Between Instructions:** If not ramping and no new instruction, the previous minute's load is maintained.
 *   **Excel Output:**
     *   Generates a new Excel workbook named `FADL Calculation.xlsx`.
-    *   Output includes:
+    *   Output includes columns:
         *   `Date Time Stamp` (YYYY-MM-DD HH:MM:SS)
         *   `Load` (MW)
         *   `Load Per Minute` (Load / 30)
@@ -28,7 +37,7 @@ This Python-based GUI tool processes minute-wise load data from an Excel input f
 *   **User Experience Features:**
     *   **Progress Bar:** Indicates the progress of the data processing.
     *   **Export Location Selection:** Allows the user to browse and select a folder to save the output file.
-    *   **Status Log Window:** Provides real-time updates and messages about the tool's operations (e.g., file reading, processing status, errors, save location).
+    *   **Status Log Window:** Provides real-time updates and messages about the tool's operations.
 
 ## Prerequisites
 
@@ -62,51 +71,49 @@ This Python-based GUI tool processes minute-wise load data from an Excel input f
 The tool expects an Excel file (`.xlsx` or `.xls`) with the following structure:
 
 1.  **Sheet Name: `Dispatch Instructions`**
-    *   **Column A:** Date and Time Stamp of the instruction (must be convertible to datetime objects, e.g., `YYYY-MM-DD HH:MM:SS` or similar). This column is used to determine available months for processing.
-    *   **Column B (Assumed):** Notification Type (Text, e.g., `RAMP`, `TARGET`). Case-insensitive, leading/trailing spaces are ignored.
-    *   **Column C (Assumed):** Value (Numeric).
-        *   If Notification Type is `RAMP`, this is the ramp rate in MW/minute.
-        *   If Notification Type is `TARGET`, this is the target load in MW.
-    *   *Other columns can exist but are not currently used by the core logic.*
-
-2.  **Sheet Name: `Availability`**
-    *   **Column A (Assumed):** Date and Time Stamp (must be convertible to datetime objects).
-    *   **Column B (Assumed):** Available Load (Numeric, in MW). This data is used for:
-        *   Determining FCBL (first hour's availability of the selected month).
-        *   Potentially for the "Final Availability" logic when between dispatch instructions (currently, the tool primarily maintains previous load if not ramping and no exact match is found in this sheet for the current minute).
+    *   **Column A (Timestamp):** `Notification Time` - Date and Time Stamp of when the instruction becomes active. (Used for month selection).
+    *   **Column B (Timestamp):** `Target Time Stamp` - The time by which the ramp should be completed and the target achieved.
+    *   **Column C (Numeric):** `Ramp Duration (Minutes)` - The duration in minutes over which the ramp should occur. If 0 or invalid, the change to Target Demand is instantaneous.
+    *   **Column D (Text/Any):** *Currently not used by the core processing logic.* Can be used for descriptive purposes by the user (e.g., old "Notification Type").
+    *   **Column E (Text):** `Post-Ramp Target Type` - Specifies behavior after a ramp (or instantaneous change). If this column contains the exact string "FCBL" (case-insensitive), the tool will look up Final Availability. Otherwise, the Target Demand is used.
+    *   **Column F (Numeric):** `Target Demand (MW)` - The target load in MW that the instruction aims for.
     *   *Other columns can exist but are not currently used.*
 
+2.  **Sheet Name: `Availability`**
+    *   **Column A (Timestamp):** Date and Time Stamp.
+    *   **Column D (Numeric):** `Final Availability (MW)` - The available load in MW. This column is used for:
+        *   The "Use Final Availability (hourly from Col D)" starting load option (uses the first entry in the first hour of the selected month).
+        *   The "FCBL" post-ramp logic (looks up the value for the current hour).
+    *   *Columns B and C can exist but are not currently used by the core logic for these features.*
+
 **Important Notes on Input Data:**
-*   Ensure timestamps in both sheets are consistent and cover the desired processing periods.
-*   The interpretation of "Notification Type" and "Value" columns in "Dispatch Instructions" is based on the assumed string values (`RAMP`, `TARGET`). Other types will be logged as "Unknown".
-*   The "Final Availability" logic currently looks for an exact timestamp match in the Availability sheet to determine load when between instructions and not ramping. If no match is found, the previous load is maintained.
+*   Ensure all timestamp columns are in a format pandas can recognize (e.g., `YYYY-MM-DD HH:MM:SS`).
+*   `Target Time Stamp` (Col B in Dispatch) should ideally align with `Notification Time` (Col A) + `Ramp Duration` (Col C). If `Target Time Stamp` is earlier than `Notification Time` + `Ramp Duration`, the ramp will effectively be shorter and aim for the `Target Time Stamp`. If `Target Time Stamp` is missing or invalid, the end of ramp is calculated using the duration.
+*   The "FCBL" string in Column E of "Dispatch Instructions" must be exact (though it's processed case-insensitively) to trigger the hourly availability lookup.
+*   Hourly lookups in the "Availability" sheet (Column D) use the *first valid numeric entry* found within the specified hour.
 
 ## Using the Tool
 
 1.  **Select Excel File:** Click "Browse..." next to "Excel File:", choose your input Excel file, and click "Open".
-    *   The tool will attempt to read the file. If successful, the "Month to Process" dropdown will be populated.
-    *   If there are errors (missing sheets, bad data format), an error message will appear, and the "Start Processing" button may be disabled. Check the Status Log for details.
-2.  **Select Month to Process:** Choose the desired month from the dropdown list.
+    *   The tool will read the file. If successful, the "Month to Process" dropdown will be populated. "Start Processing" button enabled if data seems valid.
+    *   Errors (missing sheets, critical data format issues) will be shown in messages and the Status Log.
+2.  **Select Month to Process:** Choose the desired month from the dropdown.
 3.  **Select Starting Load Type:**
-    *   **FCBL:** The tool will try to get the starting load from the "Availability" sheet for the first hour of the selected month.
-    *   **Custom Load:** Select this option and enter a numeric value for the starting load in the adjacent entry field.
-4.  **Select Export Folder:** Click "Browse..." next to "Export Folder:", choose where you want to save the `FADL Calculation.xlsx` output file, and click "Select Folder".
-5.  **Start Processing:** Click the "Start Processing" button.
-    *   The button will be disabled during processing.
-    *   The Progress Bar will show the progress.
-    *   The Status Log will display real-time updates.
-6.  **Output:** Once processing is complete, a success message will appear, and the `FADL Calculation.xlsx` file will be saved in the chosen export folder. If errors occur, they will be reported in a messagebox and/or the Status Log.
+    *   **Use Final Availability (hourly from Col D):** (Default) The tool attempts to get the starting load from Column D of the "Availability" sheet (first entry in the first hour of the selected month).
+    *   **Custom Load:** Select this and enter a numeric starting load in the entry field.
+4.  **Select Export Folder:** Click "Browse..." to choose the save location for `FADL Calculation.xlsx`.
+5.  **Start Processing:** Click "Start Processing".
+    *   The button is disabled during processing. Progress and status are updated.
+6.  **Output:** On completion, a success message appears. `FADL Calculation.xlsx` is saved. Errors are reported.
 
 ## Troubleshooting
 
-*   **"Sheet not found" errors:** Ensure your Excel file contains sheets named exactly "Dispatch Instructions" and "Availability".
-*   **Date conversion errors:** Check that the first column in both sheets contains valid date/time information that pandas can recognize.
-*   **FCBL errors:**
-    *   Ensure the "Availability" sheet has data, especially for the first hour of the month you are processing.
-    *   Verify the first column is timestamps and the second column contains numeric load values.
-*   **PermissionError on save:** Make sure the application has write permissions to the selected export folder and that `FADL Calculation.xlsx` is not already open in Excel.
-*   **GUI Freezes (should not happen):** If the GUI freezes, it might indicate an unexpected issue with the threading. Please report this. The Status Log (if still updating or via console output) might provide clues.
+*   **"Sheet not found" / "Insufficient columns":** Verify sheet names ("Dispatch Instructions", "Availability") and that they have the minimum required columns as specified above.
+*   **Date/Numeric Conversion Errors:** Check data types in relevant columns. Timestamps should be clear date/time formats. Numeric columns (Ramp Duration, Target Demand, Final Availability) must contain numbers. The Status Log often provides details on conversion issues.
+*   **Initial Hourly Availability / FCBL Lookup Failures:**
+    *   Ensure the "Availability" sheet has data in Column D for the relevant hour(s).
+    *   Verify Column A (timestamps) and Column D (load values) in "Availability" are correctly formatted.
+*   **PermissionError on save:** Ensure write permissions for the export folder and that the output file isn't open.
 
 ---
-
-This README provides a good overview for users.
+This README reflects the new logic and input requirements.
