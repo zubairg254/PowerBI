@@ -18,13 +18,14 @@ This Python-based GUI tool processes minute-wise load data from an Excel input f
         *   Instructions are read from the "Dispatch Instructions" sheet.
         *   **Ramp Calculation:**
             *   Ramp Rate (RR) = (`Target Demand (MW)` [Col F] - Previous Load) / `Ramp Duration (Minutes)` [Col C].
+            *   `Ramp Duration (Minutes)` [Col C] is expected to be a positive number. If missing or invalid, it defaults to 1 minute with a warning.
             *   Load during ramp: `Previous Load + RR` per minute.
-            *   Ramp continues until `Target Time Stamp` [Col B] is reached (or for the specified `Ramp Duration` [Col C]).
+            *   Ramp continues until `Target Time Stamp` [Col B] is reached (preferred) or for the specified `Ramp Duration` [Col C] (if Col B is invalid/missing or not in the future relative to instruction time).
             *   Load is **not** capped at `Target Demand (MW)` during the ramp itself.
         *   **Post-Ramp / At Target Time Stamp:**
-            *   If `Post-Ramp Target Type` [Col E] is "FCBL": The load is set by looking up "Final Availability" (from "Availability" Col D) for the current hour. If not found, load remains at the ramped target.
+            *   If `Post-Ramp Target Type` [Col E] is "FCBL" (case-insensitive): The load is set by looking up "Final Availability" (from "Availability" Col D) for the current hour. If not found, load remains at the ramped target (`Target Demand (MW)` from Col F).
             *   Otherwise: Load is set to the `Target Demand (MW)` [Col F] that was ramped towards.
-        *   **Instantaneous Changes:** If `Ramp Duration (Minutes)` [Col C] is 0 or not positive, the load changes to `Target Demand (MW)` [Col F] instantly, and post-ramp logic (checking Col E) applies immediately.
+        *   **Instantaneous Changes:** An instruction results in an instantaneous load change if `Target Time Stamp` [Col B] is the same as `Notification Time` [Col A]. In this case, load is set to `Target Demand (MW)` [Col F], and post-ramp logic (checking Col E) applies immediately.
         *   **Between Instructions:** If not ramping and no new instruction, the previous minute's load is maintained.
 *   **Excel Output:**
     *   Generates a new Excel workbook named `FADL Calculation.xlsx`.
@@ -32,7 +33,10 @@ This Python-based GUI tool processes minute-wise load data from an Excel input f
         *   `Date Time Stamp` (YYYY-MM-DD HH:MM:SS)
         *   `Load` (MW)
         *   `Load Per Minute` (Load / 30)
-        *   `LPM (30 Min Sum)` (rolling sum of "Load Per Minute" for each 30-minute window)
+        *   `LPM (30 Min Sum)`: This column is populated only at specific times:
+            *   For rows where timestamp minute is `00` (e.g., `XX:00:00`): Value is the sum of 'Load Per Minute' from the previous 30 minutes (i.e., `(Hour-1):30:00` to `(Hour-1):59:00`).
+            *   For rows where timestamp minute is `30` (e.g., `XX:30:00`): Value is the sum of 'Load Per Minute' from the first 30 minutes of the current hour (i.e., `Hour:00:00` to `Hour:29:00`).
+            *   All other rows in this column will be blank/NA.
     *   Formatted output: Frozen headers, styled headers, auto-adjusted column widths, and appropriate number formatting.
 *   **User Experience Features:**
     *   **Progress Bar:** Indicates the progress of the data processing.
@@ -44,6 +48,7 @@ This Python-based GUI tool processes minute-wise load data from an Excel input f
 *   Python 3.x
 *   The following Python libraries (also listed in `requirements.txt`):
     *   `pandas`
+    *   `numpy` (for `pd.NA`)
     *   `openpyxl`
     *   `python-dateutil`
 
@@ -72,10 +77,10 @@ The tool expects an Excel file (`.xlsx` or `.xls`) with the following structure:
 
 1.  **Sheet Name: `Dispatch Instructions`**
     *   **Column A (Timestamp):** `Notification Time` - Date and Time Stamp of when the instruction becomes active. (Used for month selection).
-    *   **Column B (Timestamp):** `Target Time Stamp` - The time by which the ramp should be completed and the target achieved.
-    *   **Column C (Numeric):** `Ramp Duration (Minutes)` - The duration in minutes over which the ramp should occur. If 0 or invalid, the change to Target Demand is instantaneous.
-    *   **Column D (Text/Any):** *Currently not used by the core processing logic.* Can be used for descriptive purposes by the user (e.g., old "Notification Type").
-    *   **Column E (Text):** `Post-Ramp Target Type` - Specifies behavior after a ramp (or instantaneous change). If this column contains the exact string "FCBL" (case-insensitive), the tool will look up Final Availability. Otherwise, the Target Demand is used.
+    *   **Column B (Timestamp):** `Target Time Stamp` - The time by which the ramp should be completed and the target achieved. This is the primary determinant for ramp end if valid and in the future.
+    *   **Column C (Numeric):** `Ramp Duration (Minutes)` - The duration in minutes over which the ramp should occur. Expected to be positive. Used if Column B is invalid/missing or not in the future. Defaults to 1 if missing/invalid and a ramp is implied.
+    *   **Column D (Text/Any):** *Currently not used by the core processing logic.* Can be used for descriptive purposes by the user.
+    *   **Column E (Text):** `Post-Ramp Target Type` - Specifies behavior after a ramp or instantaneous change. If this column contains the exact string "FCBL" (case-insensitive), the tool will look up Final Availability. Otherwise, the Target Demand is used.
     *   **Column F (Numeric):** `Target Demand (MW)` - The target load in MW that the instruction aims for.
     *   *Other columns can exist but are not currently used.*
 
@@ -88,7 +93,7 @@ The tool expects an Excel file (`.xlsx` or `.xls`) with the following structure:
 
 **Important Notes on Input Data:**
 *   Ensure all timestamp columns are in a format pandas can recognize (e.g., `YYYY-MM-DD HH:MM:SS`).
-*   `Target Time Stamp` (Col B in Dispatch) should ideally align with `Notification Time` (Col A) + `Ramp Duration` (Col C). If `Target Time Stamp` is earlier than `Notification Time` + `Ramp Duration`, the ramp will effectively be shorter and aim for the `Target Time Stamp`. If `Target Time Stamp` is missing or invalid, the end of ramp is calculated using the duration.
+*   `Ramp Duration (Minutes)` [Col C] is expected to be positive. If found to be missing or non-positive during parsing (and a ramp is necessary), it will default to 1 minute, and a warning will be logged.
 *   The "FCBL" string in Column E of "Dispatch Instructions" must be exact (though it's processed case-insensitively) to trigger the hourly availability lookup.
 *   Hourly lookups in the "Availability" sheet (Column D) use the *first valid numeric entry* found within the specified hour.
 
